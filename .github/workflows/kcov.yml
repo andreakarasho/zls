@@ -1,0 +1,70 @@
+name: Code Coverage
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: master
+
+      - run: zig version
+      - run: zig env
+
+      - name: Build
+        run: zig build
+
+      # - name: Build kcov
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install binutils-dev libssl-dev libcurl4-openssl-dev zlib1g-dev libdw-dev libiberty-dev
+      #     git clone https://github.com/SimonKagstrom/kcov
+      #     cd kcov
+      #     mkdir build
+      #     cd build
+      #     sudo cmake ..
+      #     sudo make
+      #     sudo make install
+
+      - name: Install kcov
+        run: |
+          sudo apt-get update
+          sudo apt-get install kcov
+
+      - name: Run Tests with kcov
+        id: kcov
+        env: # Or as an environment variable
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+        run: |
+          mkdir -p zig-out/kcov
+
+          zig build test -Dgenerate_coverage
+
+          tree zig-out/kcov
+
+          .github/workflows/kcov-json-to-summary.sh > zig-out/summary.md
+          cat zig-out/summary.md > $GITHUB_STEP_SUMMARY
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "report<<$EOF" >> "$GITHUB_OUTPUT"
+          cat zig-out/summary.md >> "$GITHUB_OUTPUT"
+          echo "$EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Publish coverage status
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          message: |
+            ${{ steps.kcov.outputs.report }}
+          comment_tag: coverage

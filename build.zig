@@ -176,31 +176,46 @@ pub fn build(b: *std.build.Builder) !void {
     if (coverage) {
         const include_pattern = b.fmt("--include-pattern=/src", .{});
         const exclude_pattern = b.fmt("--exclude-pattern=/src/stage2", .{});
-        const args = &[_]std.build.RunStep.Arg{
-            .{ .bytes = b.dupe("kcov") },
-            .{ .bytes = b.dupe("--collect-only") },
-            .{ .bytes = b.dupe(include_pattern) },
-            .{ .bytes = b.dupe(exclude_pattern) },
-            .{ .bytes = b.dupe(coverage_output_dir) },
-        };
 
         var tests_run = b.addRunArtifact(tests);
         var src_tests_run = b.addRunArtifact(src_tests);
         tests_run.has_side_effects = true;
         src_tests_run.has_side_effects = true;
 
-        tests_run.argv.insertSlice(0, args) catch @panic("OOM");
-        src_tests_run.argv.insertSlice(0, args) catch @panic("OOM");
+        tests_run.argv.insertSlice(0, &[_]std.build.RunStep.Arg{
+            .{ .bytes = b.dupe("kcov") },
+            .{ .bytes = b.dupe(include_pattern) },
+            .{ .bytes = b.dupe(exclude_pattern) },
+            .{ .bytes = b.pathJoin(&.{ coverage_output_dir, "test-tests" }) },
+        }) catch @panic("OOM");
+
+        src_tests_run.argv.insertSlice(0, &[_]std.build.RunStep.Arg{
+            .{ .bytes = b.dupe("kcov") },
+            .{ .bytes = b.dupe(include_pattern) },
+            .{ .bytes = b.dupe(exclude_pattern) },
+            .{ .bytes = b.pathJoin(&.{ coverage_output_dir, "test-src" }) },
+        }) catch @panic("OOM");
 
         var merge_step = std.build.RunStep.create(b, "merge kcov");
         merge_step.has_side_effects = true;
+
         merge_step.addArgs(&.{
             "kcov",
             "--merge",
-            coverage_output_dir,
-            b.pathJoin(&.{ coverage_output_dir, "test" }),
         });
-        merge_step.step.dependOn(&b.addRemoveDirTree(coverage_output_dir).step);
+
+        if (b.env_map.get("COVERALLS_REPO_TOKEN")) |repo_token| {
+            std.log.info("Detected repo token; enabling automatic upload to Coveralls", .{});
+            merge_step.addArg(std.mem.concat(b.allocator, u8, &[_][]const u8{ "--coveralls-id=", repo_token }) catch @panic("OOM"));
+        }
+
+        merge_step.addArgs(&.{
+            coverage_output_dir,
+            b.pathJoin(&.{ coverage_output_dir, "test-tests" }),
+            b.pathJoin(&.{ coverage_output_dir, "test-src" }),
+        });
+
+        // merge_step.step.dependOn(&b.addRemoveDirTree(coverage_output_dir).step);
         merge_step.step.dependOn(&tests_run.step);
         merge_step.step.dependOn(&src_tests_run.step);
         test_step.dependOn(&merge_step.step);
