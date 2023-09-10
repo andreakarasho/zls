@@ -3009,7 +3009,7 @@ pub const DeclWithHandle = struct {
             .error_token => return null,
             .intern_pool_index => |payload| {
                 if (payload.index == .none) return null;
-                if (analyser.ip.?.isUnknownDeep(payload.index)) return null;
+                if (try analyser.ip.?.isUnknownDeep(analyser.arena.allocator(), payload.index)) return null;
 
                 return TypeWithHandle{
                     .type = .{
